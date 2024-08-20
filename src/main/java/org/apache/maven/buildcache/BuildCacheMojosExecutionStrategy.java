@@ -24,7 +24,9 @@ import javax.inject.Named;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -106,7 +108,7 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
 
             // execute clean bound goals before restoring to not interfere/slowdown clean
             CacheState cacheState = DISABLED;
-            CacheResult result = CacheResult.empty();
+            Map<Zone, CacheResult> results = new LinkedHashMap<>();
             boolean skipCache =
                     cacheConfig.isSkipCache() || MavenProjectInput.isSkipCache(project) || isGoalClean(mojoExecutions);
             boolean cacheIsDisabled = MavenProjectInput.isCacheDisabled(project);
@@ -149,19 +151,26 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
                     mojoExecutionRunner.run(mojoExecution);
                 }
                 if (cacheState == INITIALIZED) {
-                    result = cacheController.findCachedBuild(session, project, mojoExecutions, skipCache);
+                    for (Zone zone : cacheConfig.getInputZones()) {
+                        results.put(
+                                zone,
+                                cacheController.findCachedBuild(session, project, mojoExecutions, zone, skipCache));
+                    }
                 }
             } else {
                 LOGGER.info("Cache is disabled on project level for {}", projectName);
             }
 
-            boolean restorable = result.isSuccess() || result.isPartialSuccess();
+            CacheResult bestResult = results.values().stream()
+                    .max(Comparator.comparing(CacheResult::isRestorable))
+                    .orElseGet(CacheResult::empty);
+            boolean restorable = bestResult.isRestorable();
             // A forked lifecycle skips compilation on a cache hit, so the entry must be able to put back the
             // compiled output (target/classes, target/test-classes). If it only holds the final JAR, restoring
             // would leave the fork with no classes, so we skip the restore and let it recompile instead.
             if (restorable
                     && forkedExecution
-                    && !cacheController.canRestoreForkedOutputs(result, project, mojoExecutions)) {
+                    && !cacheController.canRestoreForkedOutputs(bestResult, project, mojoExecutions)) {
                 LOGGER.info(
                         "Cache entry for {} has no compiled output to restore for the forked build; recompiling.",
                         projectName);
@@ -171,7 +180,7 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
 
             if (restorable) {
                 CacheRestorationStatus cacheRestorationStatus =
-                        restoreProject(result, mojoExecutions, mojoExecutionRunner, cacheConfig);
+                        restoreProject(bestResult, mojoExecutions, mojoExecutionRunner, cacheConfig);
                 restored = CacheRestorationStatus.SUCCESS == cacheRestorationStatus;
                 executeExtraCleanPhaseIfNeeded(cacheRestorationStatus, cleanPhase, mojoExecutionRunner);
             }
@@ -201,7 +210,7 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
                     }
                 }
 
-                if (cacheState == INITIALIZED && !forkedExecution && (!result.isSuccess() || !restored)) {
+                if (cacheState == INITIALIZED && !forkedExecution) {
                     boolean skipSave = cacheConfig.isSkipSave() || MavenProjectInput.isSkipSave(project);
                     if (skipSave) {
                         LOGGER.debug("Cache saving is disabled.");
@@ -211,9 +220,7 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
                                     .isEmpty()) {
                         LOGGER.debug("Cache storing is skipped since there was no \"clean\" phase.");
                     } else {
-                        final Map<String, MojoExecutionEvent> executionEvents =
-                                mojoListener.getProjectExecutions(project);
-                        cacheController.save(result, mojoExecutions, executionEvents);
+                        saveInOutputZones(project, mojoExecutions, results, bestResult, restored);
                     }
                 }
             } finally {
@@ -227,7 +234,7 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
             }
 
             if (cacheConfig.isFailFast()
-                    && !result.isSuccess()
+                    && !bestResult.isSuccess()
                     && !skipCache
                     && cacheEligible
                     && cacheState == INITIALIZED) {
@@ -265,6 +272,24 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
      * @param mojoExecutionRunner    mojo runner
      * @throws LifecycleExecutionException
      */
+    private void saveInOutputZones(
+            MavenProject project,
+            List<MojoExecution> mojoExecutions,
+            Map<Zone, CacheResult> results,
+            CacheResult bestResult,
+            boolean restored) {
+        final Map<String, MojoExecutionEvent> executionEvents = mojoListener.getProjectExecutions(project);
+        for (Zone outputZone : cacheConfig.getOutputZones()) {
+            CacheResult zoneResult = results.get(outputZone);
+            if (bestResult.isSuccess()
+                    && restored
+                    && (bestResult.getInputZone().equals(outputZone) || zoneResult != null && zoneResult.isSuccess())) {
+                continue;
+            }
+            cacheController.save(bestResult, mojoExecutions, executionEvents, outputZone);
+        }
+    }
+
     private void executeExtraCleanPhaseIfNeeded(
             final CacheRestorationStatus cacheRestorationStatus,
             List<MojoExecution> cleanPhase,
