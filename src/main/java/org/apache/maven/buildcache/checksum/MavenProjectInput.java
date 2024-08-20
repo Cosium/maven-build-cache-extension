@@ -61,6 +61,7 @@ import org.apache.maven.buildcache.ProjectInputCalculator;
 import org.apache.maven.buildcache.RemoteCacheRepository;
 import org.apache.maven.buildcache.ScanConfigProperties;
 import org.apache.maven.buildcache.Xpp3DomUtils;
+import org.apache.maven.buildcache.Zone;
 import org.apache.maven.buildcache.checksum.exclude.ExclusionResolver;
 import org.apache.maven.buildcache.hash.HashAlgorithm;
 import org.apache.maven.buildcache.hash.HashChecksum;
@@ -173,13 +174,13 @@ public class MavenProjectInput {
         this.fileComparator = new PathIgnoringCaseComparator();
     }
 
-    public ProjectsInputInfo calculateChecksum() throws IOException {
+    public ProjectsInputInfo calculateChecksum(Zone zone) throws IOException {
         final long t0 = System.currentTimeMillis();
 
         final String effectivePom = getEffectivePom(normalizedModelProvider.normalizedModel(project));
         final SortedSet<Path> inputFiles = isPom(project) ? Collections.emptySortedSet() : getInputFiles();
-        final SortedMap<String, String> dependenciesChecksum = getMutableDependencies();
-        final SortedMap<String, String> pluginDependenciesChecksum = getMutablePluginDependencies();
+        final SortedMap<String, String> dependenciesChecksum = getMutableDependencies(zone);
+        final SortedMap<String, String> pluginDependenciesChecksum = getMutablePluginDependencies(zone);
 
         final long t1 = System.currentTimeMillis();
 
@@ -195,8 +196,8 @@ public class MavenProjectInput {
 
         Optional<ProjectsInputInfo> baselineHolder = Optional.empty();
         if (config.isBaselineDiffEnabled()) {
-            baselineHolder =
-                    remoteCache.findBaselineBuild(project).map(b -> b.getDto().getProjectsInputInfo());
+            baselineHolder = remoteCache.findBaselineBuild(project, zone).map(b -> b.getDto()
+                    .getProjectsInputInfo());
         }
 
         if (config.calculateProjectVersionChecksum()) {
@@ -632,11 +633,11 @@ public class MavenProjectInput {
         return Files.isReadable(entry);
     }
 
-    private SortedMap<String, String> getMutableDependencies() throws IOException {
-        return getMutableDependenciesHashes("", project.getDependencies());
+    private SortedMap<String, String> getMutableDependencies(Zone zone) throws IOException {
+        return getMutableDependenciesHashes("", project.getDependencies(), zone);
     }
 
-    private SortedMap<String, String> getMutablePluginDependencies() throws IOException {
+    private SortedMap<String, String> getMutablePluginDependencies(Zone zone) throws IOException {
         Map<String, AtomicInteger> keyPrefixOccurrenceIndex = new HashMap<>();
         SortedMap<String, String> fullMap = new TreeMap<>();
         for (Plugin plugin : project.getBuildPlugins()) {
@@ -648,14 +649,14 @@ public class MavenProjectInput {
             int occurrenceIndex = keyPrefixOccurrenceIndex
                     .computeIfAbsent(rawKeyPrefix, k -> new AtomicInteger())
                     .getAndIncrement();
-            fullMap.putAll(
-                    getMutableDependenciesHashes(rawKeyPrefix + "|" + occurrenceIndex + "|", plugin.getDependencies()));
+            fullMap.putAll(getMutableDependenciesHashes(
+                    rawKeyPrefix + "|" + occurrenceIndex + "|", plugin.getDependencies(), zone));
         }
         return fullMap;
     }
 
-    private SortedMap<String, String> getMutableDependenciesHashes(String keyPrefix, List<Dependency> dependencies)
-            throws IOException {
+    private SortedMap<String, String> getMutableDependenciesHashes(
+            String keyPrefix, List<Dependency> dependencies, Zone zone) throws IOException {
         SortedMap<String, String> result = new TreeMap<>();
 
         for (Dependency dependency : dependencies) {
@@ -680,8 +681,9 @@ public class MavenProjectInput {
             String projectHash;
             if (dependencyProject != null) // part of multi module
             {
-                projectHash =
-                        projectInputCalculator.calculateInput(dependencyProject).getChecksum();
+                projectHash = projectInputCalculator
+                        .calculateInput(dependencyProject, zone)
+                        .getChecksum();
             } else // this is a snapshot dependency
             {
                 DigestItem resolved = resolveArtifact(repoSystem.createDependencyArtifact(dependency), false);
