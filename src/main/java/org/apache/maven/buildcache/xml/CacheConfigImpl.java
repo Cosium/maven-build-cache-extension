@@ -100,6 +100,8 @@ public class CacheConfigImpl implements org.apache.maven.buildcache.xml.CacheCon
     public static final String MANDATORY_CLEAN = "maven.build.cache.mandatoryClean";
     public static final String INPUT_ZONES = "maven.build.cache.inputZones";
     public static final String OUTPUT_ZONES = "maven.build.cache.outputZones";
+    public static final String INCREMENTAL_RECONCILIATION_ON_PARAMETER_MISMATCH =
+            "maven.build.cache.incrementalReconciliationOnParameterMismatch";
 
     /**
      * Flag to control if we should skip lookup for cached artifacts globally or for a particular project even if
@@ -566,6 +568,13 @@ public class CacheConfigImpl implements org.apache.maven.buildcache.xml.CacheCon
                 .distinct()
                 .map(Zone::new)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public boolean isIncrementalReconciliationOnParameterMismatch() {
+        return getProperty(
+                INCREMENTAL_RECONCILIATION_ON_PARAMETER_MISMATCH,
+                getConfiguration().isIncrementalReconciliationOnParameterMismatch());
     }
 
     @Override

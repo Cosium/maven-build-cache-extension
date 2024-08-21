@@ -39,7 +39,7 @@ public interface CacheController {
             Zone inputZone,
             boolean skipCache);
 
-    ArtifactRestorationReport restoreProjectArtifacts(CacheResult cacheResult);
+    ArtifactRestorationReport restoreProjectArtifacts(CacheResult cacheResult, boolean setProjectArtifact);
 
     void save(
             CacheResult cacheResult,
