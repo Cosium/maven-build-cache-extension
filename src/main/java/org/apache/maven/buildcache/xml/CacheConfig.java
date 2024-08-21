@@ -199,4 +199,6 @@ public interface CacheConfig {
     List<Zone> getInputZones();
 
     List<Zone> getOutputZones();
+
+    boolean isIncrementalReconciliationOnParameterMismatch();
 }

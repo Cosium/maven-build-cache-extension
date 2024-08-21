@@ -40,7 +40,7 @@ public interface CacheController {
             Zone inputZone,
             boolean skipCache);
 
-    ArtifactRestorationReport restoreProjectArtifacts(CacheResult cacheResult);
+    ArtifactRestorationReport restoreProjectArtifacts(CacheResult cacheResult, boolean setProjectArtifact);
 
     /**
      * Tells whether a cache entry can put back the compiled output a forked lifecycle would otherwise build
