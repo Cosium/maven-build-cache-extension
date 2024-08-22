@@ -536,9 +536,7 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
 
                 if (completedExecution != null
                         && !isParamsMatched(project, session, cacheCandidate, mojo, completedExecution)) {
-                    LOGGER.info(
-                            "Mojo cached parameters mismatch with actual, forcing full project build. Mojo: {}",
-                            fullGoalName);
+                    LOGGER.info("Mojo cached parameters mismatch with actual. Mojo: {}", fullGoalName);
                     consistent = false;
                 }
 
