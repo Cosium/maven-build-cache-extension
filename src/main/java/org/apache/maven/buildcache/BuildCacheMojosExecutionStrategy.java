@@ -385,9 +385,7 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
                 final String fullGoalName = cacheCandidate.getMojoDescriptor().getFullGoalName();
 
                 if (completedExecution != null && !isParamsMatched(project, cacheCandidate, mojo, completedExecution)) {
-                    LOGGER.info(
-                            "Mojo cached parameters mismatch with actual, forcing full project build. Mojo: {}",
-                            fullGoalName);
+                    LOGGER.info("Mojo cached parameters mismatch with actual. Mojo: {}", fullGoalName);
                     consistent = false;
                 }
 
