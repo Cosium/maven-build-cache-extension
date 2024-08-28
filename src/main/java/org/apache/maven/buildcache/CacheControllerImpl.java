@@ -235,7 +235,7 @@ public class CacheControllerImpl implements CacheController {
             LOGGER.info(
                     "Project {} is marked as requiring force rebuild, will skip lookup in build cache", projectName);
         }
-        cacheResults.put(getVersionlessProjectKey(project), result);
+        cacheResults.put(getVersionlessProjectKey(project, inputZone), result);
 
         return result;
     }
@@ -715,7 +715,7 @@ public class CacheControllerImpl implements CacheController {
                     hashFactory.getAlgorithm());
             populateGitInfo(build, session);
             build.getDto().set_final(cacheConfig.isSaveToRemoteFinal());
-            cacheResults.put(getVersionlessProjectKey(project), CacheResult.rebuilt(cacheResult, build));
+            cacheResults.put(getVersionlessProjectKey(project, outputZone), CacheResult.rebuilt(cacheResult, build));
 
             localCache.beforeSave(context, outputZone);
 
