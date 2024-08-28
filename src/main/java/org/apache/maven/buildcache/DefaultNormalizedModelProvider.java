@@ -24,7 +24,6 @@ import javax.inject.Named;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
-import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
@@ -82,7 +81,7 @@ public class DefaultNormalizedModelProvider implements NormalizedModelProvider {
         // does not make sense to add project version to calculate hash
         resultModel.setVersion(NORMALIZED_VERSION);
         resultModel.setModules(prototype.getModules());
-        resultModel.setProperties(normalizeProperties(prototype.getProperties()));
+
         resultModel.setDependencies(normalizeDependencies(prototype.getDependencies()));
 
         org.apache.maven.model.Build protoBuild = prototype.getBuild();
@@ -95,18 +94,6 @@ public class DefaultNormalizedModelProvider implements NormalizedModelProvider {
         build.setPlugins(normalizePlugins(plugins));
         resultModel.setBuild(build);
         return resultModel;
-    }
-
-    private Properties normalizeProperties(Properties properties) {
-        Properties normalizedProperties = new Properties();
-
-        for (String propertyName : properties.stringPropertyNames()) {
-            if (!propertyName.startsWith("maven.build.cache.")) {
-                continue;
-            }
-            normalizedProperties.setProperty(propertyName, properties.getProperty(propertyName));
-        }
-        return normalizedProperties;
     }
 
     private List<Dependency> normalizeDependencies(Collection<Dependency> source) {
