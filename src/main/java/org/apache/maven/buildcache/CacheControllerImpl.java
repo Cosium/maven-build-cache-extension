@@ -1278,7 +1278,11 @@ public class CacheControllerImpl implements CacheController {
             // 1. Fresh files built during this session, or
             // 2. Files restored from cache during this session
             // Both cases are valid and should be cached.
-
+            LOGGER.info(
+                    "Zipping and attaching artifact using directory <{}>, classifier <{}> and glob <{}>",
+                    candidateSubDir,
+                    classifier,
+                    glob);
             boolean success = zipAndAttachArtifact(project, candidateSubDir, classifier, glob);
             if (success) {
                 state.attachedResourcesPathsById.put(classifier, relativePath);
