@@ -989,6 +989,11 @@ public class CacheControllerImpl implements CacheController {
             final Path relativePath = project.getBasedir().toPath().relativize(candidateSubDir);
             attachedResourceCounter++;
             final String classifier = attachedOutputType.getClassifierPrefix() + attachedResourceCounter;
+            LOGGER.info(
+                    "Zipping and attaching artifact using directory <{}>, classifier <{}> and glob <{}>",
+                    candidateSubDir,
+                    classifier,
+                    glob);
             boolean success = zipAndAttachArtifact(project, candidateSubDir, classifier, glob);
             if (success) {
                 attachedResourcesPathsById.put(classifier, relativePath);
