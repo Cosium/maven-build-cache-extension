@@ -675,7 +675,11 @@ public class CacheControllerImpl implements CacheController {
                 // we get its location on the disk
                 relativePath = project.getBasedir().toPath().relativize(file.toAbsolutePath());
             }
-            dto.setFilePath(FilenameUtils.separatorsToUnix(relativePath.toString()));
+            String filePath = FilenameUtils.separatorsToUnix(relativePath.toString());
+            if (LOGGER.isInfoEnabled()) {
+                LOGGER.info("Setting file path of <{}> to {}", filePath, ToStringBuilder.reflectionToString(dto));
+            }
+            dto.setFilePath(filePath);
         }
         return dto;
     }
@@ -996,6 +1000,7 @@ public class CacheControllerImpl implements CacheController {
                     glob);
             boolean success = zipAndAttachArtifact(project, candidateSubDir, classifier, glob);
             if (success) {
+                LOGGER.info("Associating classifier <{}> with relative path <{}>", classifier, relativePath);
                 attachedResourcesPathsById.put(classifier, relativePath);
                 LOGGER.debug("Attached directory: {}", candidateSubDir);
             }
