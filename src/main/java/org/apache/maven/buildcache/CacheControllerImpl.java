@@ -60,6 +60,7 @@ import java.util.regex.Pattern;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Strings;
+import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.mutable.MutableBoolean;
 import org.apache.maven.SessionScoped;
 import org.apache.maven.artifact.handler.ArtifactHandler;
@@ -465,6 +466,13 @@ public class CacheControllerImpl implements CacheController {
                             // generated sources artifact
                             final Path attachedArtifactFile = localCache.getArtifactFile(
                                     context, cacheResult.getSource(), cacheResult.getInputZone(), attachedArtifactInfo);
+                            if (LOGGER.isInfoEnabled()) {
+                                LOGGER.info(
+                                        "Restoring {} from {}:{}",
+                                        ToStringBuilder.reflectionToString(attachedArtifactInfo),
+                                        cacheResult.getSource(),
+                                        cacheResult.getInputZone());
+                            }
                             restoreGeneratedSources(attachedArtifactInfo, attachedArtifactFile, project);
                             // Track this classifier as restored so save() includes it even with old timestamp
                             state.restoredOutputClassifiers.add(attachedArtifactInfo.getClassifier());
@@ -1169,6 +1177,7 @@ public class CacheControllerImpl implements CacheController {
         if (!Files.exists(outputDir)) {
             Files.createDirectories(outputDir);
         }
+        LOGGER.info("Unzipping <{}> to <{}>", artifactFilePath, outputDir);
         CacheUtils.unzip(
                 artifactFilePath, outputDir, cacheConfig.isPreservePermissions(), cacheConfig.isPreserveTimestamps());
         OutputType outputType = OutputType.fromClassifier(artifact.getClassifier());
