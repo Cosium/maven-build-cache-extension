@@ -21,6 +21,7 @@ package org.apache.maven.buildcache;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
+import javax.inject.Provider;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -127,7 +128,7 @@ public class CacheControllerImpl implements CacheController {
     private final LocalCacheRepository localCache;
     private final RemoteCacheRepository remoteCache;
     private final ConcurrentMap<String, CacheResult> cacheResults = new ConcurrentHashMap<>();
-    private final LifecyclePhasesHelper lifecyclePhasesHelper;
+    private final Provider<LifecyclePhasesHelper> providerLifecyclePhasesHelper;
     private volatile Map<String, MavenProject> projectIndex;
     private final ProjectInputCalculator projectInputCalculator;
     private final RestoredArtifactHandler restoreArtifactHandler;
@@ -153,15 +154,14 @@ public class CacheControllerImpl implements CacheController {
             CacheConfig cacheConfig,
             ProjectInputCalculator projectInputCalculator,
             RestoredArtifactHandler restoreArtifactHandler,
-            LifecyclePhasesHelper lifecyclePhasesHelper,
-            MavenSession session) {
+            Provider<LifecyclePhasesHelper> providerLifecyclePhasesHelper) {
         this.projectHelper = projectHelper;
         this.localCache = localCache;
         this.remoteCache = remoteCache;
         this.cacheConfig = cacheConfig;
         this.artifactHandlerManager = artifactHandlerManager;
         this.xmlService = xmlService;
-        this.lifecyclePhasesHelper = lifecyclePhasesHelper;
+        this.providerLifecyclePhasesHelper = providerLifecyclePhasesHelper;
         this.projectInputCalculator = projectInputCalculator;
         this.restoreArtifactHandler = restoreArtifactHandler;
     }
@@ -174,6 +174,7 @@ public class CacheControllerImpl implements CacheController {
             List<MojoExecution> mojoExecutions,
             Zone inputZone,
             boolean skipCache) {
+        final LifecyclePhasesHelper lifecyclePhasesHelper = providerLifecyclePhasesHelper.get();
         final String highestPhase = lifecyclePhasesHelper.resolveHighestLifecyclePhase(project, mojoExecutions);
 
         if (!lifecyclePhasesHelper.isLaterPhaseThanClean(highestPhase)) {
@@ -267,6 +268,7 @@ public class CacheControllerImpl implements CacheController {
                         build.getCacheImplementationVersion());
             }
 
+            final LifecyclePhasesHelper lifecyclePhasesHelper = providerLifecyclePhasesHelper.get();
             if (lifecyclePhasesHelper.isLaterPhaseThanBuild("package", build)) {
                 LOGGER.warn("Cached build doesn't include phase 'package', cannot restore");
                 return failure(build, context, inputZone);
@@ -311,6 +313,7 @@ public class CacheControllerImpl implements CacheController {
     }
 
     private boolean canIgnoreMissingSegment(MavenProject project, Build info, List<MojoExecution> mojoExecutions) {
+        final LifecyclePhasesHelper lifecyclePhasesHelper = providerLifecyclePhasesHelper.get();
         final List<MojoExecution> postCachedSegment =
                 lifecyclePhasesHelper.getPostCachedSegment(project, mojoExecutions, info);
 

@@ -20,6 +20,7 @@ package org.apache.maven.buildcache;
 
 import javax.inject.Inject;
 import javax.inject.Named;
+import javax.inject.Provider;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -42,7 +43,7 @@ public class DefaultProjectInputCalculator implements ProjectInputCalculator {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultProjectInputCalculator.class);
 
-    private final MavenSession mavenSession;
+    private final Provider<MavenSession> providerSession;
     private final RemoteCacheRepository remoteCache;
     private final CacheConfig cacheConfig;
     private final RepositorySystem repoSystem;
@@ -55,13 +56,13 @@ public class DefaultProjectInputCalculator implements ProjectInputCalculator {
 
     @Inject
     public DefaultProjectInputCalculator(
-            MavenSession mavenSession,
+            Provider<MavenSession> providerSession,
             RemoteCacheRepository remoteCache,
             CacheConfig cacheConfig,
             RepositorySystem repoSystem,
             NormalizedModelProvider rawModelProvider,
             MultiModuleSupport multiModuleSupport) {
-        this.mavenSession = mavenSession;
+        this.providerSession = providerSession;
         this.remoteCache = remoteCache;
         this.cacheConfig = cacheConfig;
         this.repoSystem = repoSystem;
@@ -99,6 +100,7 @@ public class DefaultProjectInputCalculator implements ProjectInputCalculator {
                     + ", setOfCalculatingProjects=" + projectsSet + "]");
         }
         try {
+            final MavenSession mavenSession = providerSession.get();
             final MavenProjectInput input = new MavenProjectInput(
                     project,
                     normalizedModelProvider,
