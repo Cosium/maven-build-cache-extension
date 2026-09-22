@@ -24,6 +24,7 @@ import javax.inject.Named;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -214,22 +215,7 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
                 }
 
                 if (cacheState == INITIALIZED && !forkedExecution) {
-                    boolean skipSave = cacheConfig.isSkipSave() || MavenProjectInput.isSkipSave(project);
-                    if (skipSave) {
-                        LOGGER.debug("Cache saving is disabled.");
-                    } else if (cacheConfig.isMandatoryClean()
-                            && lifecyclePhasesHelper
-                                    .getCleanSegment(project, mojoExecutions)
-                                    .isEmpty()) {
-                        LOGGER.debug("Cache storing is skipped since there was no \"clean\" phase.");
-                    } else {
-                        saveInOutputZones(
-                                project,
-                                mojoExecutions,
-                                results,
-                                bestResult,
-                                restorationStatus == CacheRestorationStatus.SUCCESS);
-                    }
+                    saveToCache(project, mojoExecutions, results, bestResult, restorationStatus);
                 }
             } finally {
                 // Always restore staged files after build completes (whether save ran or not).
@@ -280,13 +266,39 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
      * @param mojoExecutionRunner    mojo runner
      * @throws LifecycleExecutionException
      */
-    private void saveInOutputZones(
+    private void saveToCache(
             MavenProject project,
             List<MojoExecution> mojoExecutions,
             Map<Zone, CacheResult> results,
             CacheResult bestResult,
-            boolean fullyRestored) {
-        final Map<String, MojoExecutionEvent> executionEvents = mojoListener.getProjectExecutions(project);
+            CacheRestorationStatus restorationStatus) {
+        List<Zone> zonesToSave =
+                selectZonesToSave(results, bestResult, restorationStatus == CacheRestorationStatus.SUCCESS);
+        boolean skipSave = cacheConfig.isSkipSave() || MavenProjectInput.isSkipSave(project);
+        if (zonesToSave.isEmpty()) {
+            LOGGER.debug("Every output zone already holds this build, nothing to save.");
+        } else if (skipSave) {
+            LOGGER.debug("Cache saving is disabled.");
+        } else if (cacheConfig.isMandatoryClean()
+                && lifecyclePhasesHelper
+                        .getCleanSegment(project, mojoExecutions)
+                        .isEmpty()) {
+            LOGGER.debug("Cache storing is skipped since there was no \"clean\" phase.");
+        } else {
+            final Map<String, MojoExecutionEvent> executionEvents = mojoListener.getProjectExecutions(project);
+            for (Zone outputZone : zonesToSave) {
+                cacheController.save(bestResult, mojoExecutions, executionEvents, outputZone);
+            }
+        }
+    }
+
+    /**
+     * An output zone needs no save when the build was fully restored from a zone that already holds this
+     * result: the input zone itself, or an output zone whose own lookup succeeded.
+     */
+    private List<Zone> selectZonesToSave(
+            Map<Zone, CacheResult> results, CacheResult bestResult, boolean fullyRestored) {
+        List<Zone> zonesToSave = new ArrayList<>();
         for (Zone outputZone : cacheConfig.getOutputZones()) {
             CacheResult zoneResult = results.get(outputZone);
             if (bestResult.isSuccess()
@@ -294,8 +306,9 @@ public class BuildCacheMojosExecutionStrategy implements MojosExecutionStrategy 
                     && (bestResult.getInputZone().equals(outputZone) || zoneResult != null && zoneResult.isSuccess())) {
                 continue;
             }
-            cacheController.save(bestResult, mojoExecutions, executionEvents, outputZone);
+            zonesToSave.add(outputZone);
         }
+        return zonesToSave;
     }
 
     private void executeExtraCleanPhaseIfNeeded(
