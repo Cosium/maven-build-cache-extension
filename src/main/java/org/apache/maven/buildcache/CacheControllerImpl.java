@@ -92,6 +92,7 @@ import org.apache.maven.buildcache.xml.report.ProjectReport;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.execution.MojoExecutionEvent;
 import org.apache.maven.plugin.MojoExecution;
+import org.apache.maven.plugin.descriptor.MojoDescriptor;
 import org.apache.maven.plugin.descriptor.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.MavenProjectHelper;
@@ -104,6 +105,7 @@ import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.apache.commons.lang3.StringUtils.split;
+import static org.apache.maven.artifact.Artifact.SCOPE_TEST;
 import static org.apache.maven.buildcache.CacheResult.empty;
 import static org.apache.maven.buildcache.CacheResult.failure;
 import static org.apache.maven.buildcache.CacheResult.partialSuccess;
@@ -205,9 +207,25 @@ public class CacheControllerImpl implements CacheController {
 
         String projectName = getVersionlessProjectKey(project);
 
-        ProjectsInputInfo inputInfo = projectInputCalculator.calculateInput(project, inputZone);
+        // A standard compile-only lifecycle invocation contains only main outputs, so it does not normally need
+        // test-scoped dependencies. A mojo bound at or before compile can still explicitly require test dependency
+        // resolution or collection, making those dependencies build inputs. Later phases always include them.
+        // Keep distinct checksum variants so a compile lookup cannot reuse a package-level decision.
+        boolean includeTestDependencies = shouldIncludeTestDependencies(
+                lifecyclePhasesHelper.isLaterPhase(highestPhase, "compile"), mojoExecutions);
+        ProjectsInputInfo inputInfo =
+                projectInputCalculator.calculateInput(project, inputZone, includeTestDependencies);
 
         final CacheContext context = new CacheContext(project, inputInfo, session);
+
+        if (MavenProjectInput.hasIncompleteDependencyGraph(inputInfo)) {
+            LOGGER.warn(
+                    "Skipping build cache lookup for {} because the transitive snapshot graph is not locally complete",
+                    projectName);
+            CacheResult result = empty(context, inputZone);
+            cacheResults.put(getVersionlessProjectKey(project, inputZone), result);
+            return result;
+        }
 
         CacheResult result = empty(context, inputZone);
         if (!skipCache) {
@@ -241,6 +259,24 @@ public class CacheControllerImpl implements CacheController {
         cacheResults.put(getVersionlessProjectKey(project, inputZone), result);
 
         return result;
+    }
+
+    static boolean shouldIncludeTestDependencies(boolean lifecycleAfterCompile, List<MojoExecution> mojoExecutions) {
+        if (lifecycleAfterCompile) {
+            return true;
+        }
+        for (MojoExecution execution : mojoExecutions) {
+            MojoDescriptor descriptor = execution.getMojoDescriptor();
+            if (descriptor == null) {
+                // An unresolved descriptor cannot prove that test inputs are irrelevant.
+                return true;
+            }
+            if (SCOPE_TEST.equals(descriptor.getDependencyResolutionRequired())
+                    || SCOPE_TEST.equals(descriptor.getDependencyCollectionRequired())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private CacheResult findCachedBuild(List<MojoExecution> mojoExecutions, CacheContext context, Zone inputZone) {
@@ -644,6 +680,11 @@ public class CacheControllerImpl implements CacheController {
 
         if (context == null || context.getInputInfo() == null) {
             LOGGER.info("Cannot save project in cache, skipping");
+            return;
+        }
+
+        if (MavenProjectInput.hasIncompleteDependencyGraph(context.getInputInfo())) {
+            LOGGER.warn("Cannot save project in cache: the transitive snapshot graph is not locally complete");
             return;
         }
 
