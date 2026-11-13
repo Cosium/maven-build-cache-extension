@@ -260,7 +260,8 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
 
         assertEquals(2, hashes.size());
         assertTrue(hashes.containsKey("com.example:direct-snapshot:jar"));
-        assertTrue(hashes.containsKey(MavenProjectInput.INCOMPLETE_DEPENDENCY_GRAPH_MARKER));
+        assertTrue(
+                hashes.get(MavenProjectInput.INCOMPLETE_DEPENDENCY_GRAPH_MARKER).matches("[0-9a-f]{40}"));
         org.mockito.ArgumentCaptor<RepositorySystemSession> sessionCaptor =
                 org.mockito.ArgumentCaptor.forClass(RepositorySystemSession.class);
         verify(repoSystem).collectDependencies(sessionCaptor.capture(), any(CollectRequest.class));

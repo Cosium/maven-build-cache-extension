@@ -875,10 +875,15 @@ public class MavenProjectInput {
         }
     }
 
-    private static void markIncompleteDependencyGraph(SortedMap<String, String> hashes) {
+    private void markIncompleteDependencyGraph(SortedMap<String, String> hashes) {
         // A random value is defense in depth for callers that do not honor hasIncompleteDependencyGraph(): an
-        // incomplete key cannot match an entry written by another Maven session.
-        hashes.putIfAbsent(INCOMPLETE_DEPENDENCY_GRAPH_MARKER, UUID.randomUUID().toString());
+        // incomplete key cannot match an entry written by another Maven session. It is hashed because the checksum
+        // only accepts hashes of the configured algorithm.
+        hashes.putIfAbsent(
+                INCOMPLETE_DEPENDENCY_GRAPH_MARKER,
+                config.getHashFactory()
+                        .createAlgorithm()
+                        .hash(UUID.randomUUID().toString().getBytes(StandardCharsets.UTF_8)));
     }
 
     private static RepositorySystemSession localOnly(final RepositorySystemSession session) {
