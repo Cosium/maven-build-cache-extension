@@ -26,10 +26,5 @@ import org.apache.maven.project.MavenProject;
  */
 public interface ProjectInputCalculator {
 
-    /**
-     * Calculates project inputs for the lifecycle being cached.
-     *
-     * @param includeTestDependencies whether test-scoped mutable dependencies can affect the cached outputs
-     */
-    ProjectsInputInfo calculateInput(MavenProject project, Zone inputZone, boolean includeTestDependencies);
+    ProjectsInputInfo calculateInput(MavenProject project, Zone inputZone);
 }

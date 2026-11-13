@@ -212,7 +212,7 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
 
         ProjectsInputInfo projectInfo = mock(ProjectsInputInfo.class);
         when(projectInfo.getChecksum()).thenReturn("reactorChecksum");
-        when(projectInputCalculator.calculateInput(reactorProject, zone, true)).thenReturn(projectInfo);
+        when(projectInputCalculator.calculateInput(reactorProject, zone)).thenReturn(projectInfo);
 
         Method getMutableDependenciesHashes = MavenProjectInput.class.getDeclaredMethod(
                 "getMutableDependenciesHashes", String.class, List.class, Zone.class);
@@ -225,7 +225,7 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
 
         verify(repoSystem, never())
                 .resolveArtifact(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
-        verify(projectInputCalculator).calculateInput(reactorProject, zone, true);
+        verify(projectInputCalculator).calculateInput(reactorProject, zone);
     }
 
     @Test
@@ -351,7 +351,7 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
         transitive.setValue("com.example:mutable-child:jar");
         transitive.setHash("child-checksum");
         projectInfo.getItems().add(transitive);
-        when(projectInputCalculator.calculateInput(reactorProject, zone, true)).thenReturn(projectInfo);
+        when(projectInputCalculator.calculateInput(reactorProject, zone)).thenReturn(projectInfo);
 
         Method getMutableDependenciesHashes = MavenProjectInput.class.getDeclaredMethod(
                 "getMutableDependenciesHashes", String.class, List.class, Zone.class);
@@ -379,7 +379,7 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
         beforeReactorInput.setChecksum("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         ProjectsInputInfo afterReactorInput = new ProjectsInputInfo();
         afterReactorInput.setChecksum("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        when(projectInputCalculator.calculateInput(reactorProject, zone, true))
+        when(projectInputCalculator.calculateInput(reactorProject, zone))
                 .thenReturn(beforeReactorInput, afterReactorInput);
 
         Method getMutableDependenciesHashes = MavenProjectInput.class.getDeclaredMethod(
@@ -422,7 +422,7 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
         reactorSnapshot.setValue("com.example:shared:jar");
         reactorSnapshot.setHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         reactorInput.getItems().add(reactorSnapshot);
-        when(projectInputCalculator.calculateInput(reactorPom, zone, true)).thenReturn(reactorInput);
+        when(projectInputCalculator.calculateInput(reactorPom, zone)).thenReturn(reactorInput);
 
         DefaultArtifact selectedSnapshot = new DefaultArtifact("com.example", "shared", "jar", "2.0-SNAPSHOT");
         DefaultDependencyNode graphRoot = new DefaultDependencyNode((org.eclipse.aether.graph.Dependency) null);
@@ -639,7 +639,7 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
     }
 
     @Test
-    void compileScopedReactorTestJarIncludesProducerTestInputsAndPropagatesIncompleteGraph() throws Exception {
+    void compileScopedReactorTestJarPropagatesIncompleteGraph() throws Exception {
         Dependency dependency = new Dependency();
         dependency.setGroupId("com.example");
         dependency.setArtifactId("reactor-tests");
@@ -657,32 +657,21 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
         incomplete.setValue(MavenProjectInput.INCOMPLETE_DEPENDENCY_GRAPH_MARKER);
         incomplete.setHash("session-marker");
         projectInfo.getItems().add(incomplete);
-        when(projectInputCalculator.calculateInput(reactorProject, zone, true)).thenReturn(projectInfo);
+        when(projectInputCalculator.calculateInput(reactorProject, zone)).thenReturn(projectInfo);
 
-        MavenProjectInput compileOnlyInput = new MavenProjectInput(
-                project,
-                normalizedModelProvider,
-                multiModuleSupport,
-                projectInputCalculator,
-                session,
-                config,
-                repoSystem,
-                remoteCache,
-                artifactHandlerManager,
-                false);
         Method getMutableDependenciesHashes = MavenProjectInput.class.getDeclaredMethod(
                 "getMutableDependenciesHashes", String.class, List.class, Zone.class);
         getMutableDependenciesHashes.setAccessible(true);
         SortedMap<String, String> hashes = (SortedMap<String, String>)
-                getMutableDependenciesHashes.invoke(compileOnlyInput, "", Collections.singletonList(dependency), zone);
+                getMutableDependenciesHashes.invoke(mavenProjectInput, "", Collections.singletonList(dependency), zone);
 
         assertEquals("reactor-test-checksum", hashes.get("com.example:reactor-tests:test-jar"));
         assertTrue(hashes.containsKey(MavenProjectInput.INCOMPLETE_DEPENDENCY_GRAPH_MARKER));
-        verify(projectInputCalculator).calculateInput(reactorProject, zone, true);
+        verify(projectInputCalculator).calculateInput(reactorProject, zone);
     }
 
     @Test
-    void transitiveReactorTestArtifactIncludesProducerTestInputsAndPropagatesIncompleteGraph() throws Exception {
+    void transitiveReactorTestArtifactPropagatesIncompleteGraph() throws Exception {
         Dependency releaseRoot = new Dependency();
         releaseRoot.setGroupId("com.example");
         releaseRoot.setArtifactId("release-root");
@@ -717,25 +706,14 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
         incomplete.setValue(MavenProjectInput.INCOMPLETE_DEPENDENCY_GRAPH_MARKER);
         incomplete.setHash("session-marker");
         projectInfo.getItems().add(incomplete);
-        when(projectInputCalculator.calculateInput(reactorProject, zone, true)).thenReturn(projectInfo);
+        when(projectInputCalculator.calculateInput(reactorProject, zone)).thenReturn(projectInfo);
 
-        MavenProjectInput compileOnlyInput = new MavenProjectInput(
-                project,
-                normalizedModelProvider,
-                multiModuleSupport,
-                projectInputCalculator,
-                session,
-                config,
-                repoSystem,
-                remoteCache,
-                artifactHandlerManager,
-                false);
         Method getMutableDependencies = MavenProjectInput.class.getDeclaredMethod("getMutableDependencies", Zone.class);
         getMutableDependencies.setAccessible(true);
         SortedMap<String, String> hashes =
-                (SortedMap<String, String>) getMutableDependencies.invoke(compileOnlyInput, zone);
+                (SortedMap<String, String>) getMutableDependencies.invoke(mavenProjectInput, zone);
 
         assertTrue(hashes.containsKey(MavenProjectInput.INCOMPLETE_DEPENDENCY_GRAPH_MARKER));
-        verify(projectInputCalculator).calculateInput(reactorProject, zone, true);
+        verify(projectInputCalculator).calculateInput(reactorProject, zone);
     }
 }

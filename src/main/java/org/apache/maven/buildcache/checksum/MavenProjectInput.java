@@ -54,7 +54,6 @@ import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.Strings;
 import org.apache.maven.RepositoryUtils;
@@ -164,7 +163,6 @@ public class MavenProjectInput {
     private final ProjectInputCalculator projectInputCalculator;
     private final Path baseDirPath;
     private final ArtifactHandlerManager artifactHandlerManager;
-    private final boolean includeTestDependencies;
 
     /**
      * The project glob to use every time there is no override
@@ -187,31 +185,6 @@ public class MavenProjectInput {
             RepositorySystem repoSystem,
             RemoteCacheRepository remoteCache,
             ArtifactHandlerManager artifactHandlerManager) {
-        this(
-                project,
-                normalizedModelProvider,
-                multiModuleSupport,
-                projectInputCalculator,
-                session,
-                config,
-                repoSystem,
-                remoteCache,
-                artifactHandlerManager,
-                true);
-    }
-
-    @SuppressWarnings("checkstyle:parameternumber")
-    public MavenProjectInput(
-            MavenProject project,
-            NormalizedModelProvider normalizedModelProvider,
-            MultiModuleSupport multiModuleSupport,
-            ProjectInputCalculator projectInputCalculator,
-            MavenSession session,
-            CacheConfig config,
-            RepositorySystem repoSystem,
-            RemoteCacheRepository remoteCache,
-            ArtifactHandlerManager artifactHandlerManager,
-            boolean includeTestDependencies) {
         this.project = project;
         this.normalizedModelProvider = normalizedModelProvider;
         this.multiModuleSupport = multiModuleSupport;
@@ -221,7 +194,6 @@ public class MavenProjectInput {
         this.baseDirPath = project.getBasedir().toPath().toAbsolutePath();
         this.repoSystem = repoSystem;
         this.remoteCache = remoteCache;
-        this.includeTestDependencies = includeTestDependencies;
         Properties properties = project.getProperties();
         this.projectGlob = properties.getProperty(CACHE_INPUT_GLOB_NAME, config.getDefaultGlob());
         this.processPlugins =
@@ -728,10 +700,7 @@ public class MavenProjectInput {
     }
 
     private SortedMap<String, String> getMutableDependencies(Zone zone) throws IOException {
-        List<Dependency> relevantDependencies = project.getDependencies().stream()
-                .filter(this::isRelevantDependency)
-                .collect(Collectors.toList());
-        SortedMap<String, String> hashes = getMutableDependenciesHashes("", relevantDependencies, zone);
+        SortedMap<String, String> hashes = getMutableDependenciesHashes("", project.getDependencies(), zone);
         if (project.getDependencies().isEmpty()) {
             return hashes;
         }
@@ -745,7 +714,7 @@ public class MavenProjectInput {
         CollectRequest request = new CollectRequest();
         request.setRepositories(project.getRemoteProjectRepositories());
         boolean hasExternalRoot = false;
-        for (Dependency dependency : relevantDependencies) {
+        for (Dependency dependency : project.getDependencies()) {
             if (Artifact.SCOPE_SYSTEM.equals(dependency.getScope())
                     || tryResolveDependencyProject(dependency).isPresent()) {
                 continue;
@@ -774,11 +743,7 @@ public class MavenProjectInput {
             PreorderNodeListGenerator nodes = new PreorderNodeListGenerator();
             dependencyGraph.accept(nodes);
             for (DependencyNode node : nodes.getNodes()) {
-                if (node.getDependency() == null
-                        || (!includeTestDependencies
-                                && Artifact.SCOPE_TEST.equals(
-                                        node.getDependency().getScope()))
-                        || node.getData().get(ConflictResolver.NODE_DATA_WINNER) != null) {
+                if (node.getDependency() == null || node.getData().get(ConflictResolver.NODE_DATA_WINNER) != null) {
                     continue;
                 }
                 org.eclipse.aether.artifact.Artifact artifact = node.getArtifact();
@@ -790,8 +755,8 @@ public class MavenProjectInput {
                         artifact.getGroupId(), artifact.getArtifactId(), artifact.getBaseVersion());
                 if (reactorProject.isPresent()) {
                     if (!hashes.containsKey(key)) {
-                        ProjectsInputInfo reactorInput = projectInputCalculator.calculateInput(
-                                reactorProject.get(), zone, includeTestDependencies || isTestArtifact(artifact));
+                        ProjectsInputInfo reactorInput =
+                                projectInputCalculator.calculateInput(reactorProject.get(), zone);
                         hashes.put(key, reactorInput.getChecksum());
                         if (hasIncompleteDependencyGraph(reactorInput)) {
                             markIncompleteDependencyGraph(hashes);
@@ -862,8 +827,6 @@ public class MavenProjectInput {
         return node != null
                 && node.getDependency() != null
                 && node.getArtifact() != null
-                && (includeTestDependencies
-                        || !Artifact.SCOPE_TEST.equals(node.getDependency().getScope()))
                 && node.getData().get(ConflictResolver.NODE_DATA_WINNER) == null;
     }
 
@@ -912,27 +875,10 @@ public class MavenProjectInput {
         }
     }
 
-    private boolean isRelevantDependency(Dependency dependency) {
-        return includeTestDependencies || !Artifact.SCOPE_TEST.equals(dependency.getScope());
-    }
-
     private static void markIncompleteDependencyGraph(SortedMap<String, String> hashes) {
         // A random value is defense in depth for callers that do not honor hasIncompleteDependencyGraph(): an
         // incomplete key cannot match an entry written by another Maven session.
         hashes.putIfAbsent(INCOMPLETE_DEPENDENCY_GRAPH_MARKER, UUID.randomUUID().toString());
-    }
-
-    private static boolean isTestArtifact(Dependency dependency) {
-        return "test-jar".equals(dependency.getType()) || isTestArtifact(dependency.getClassifier());
-    }
-
-    private static boolean isTestArtifact(org.eclipse.aether.artifact.Artifact artifact) {
-        return "test-jar".equals(artifact.getProperty(ArtifactProperties.TYPE, null))
-                || isTestArtifact(artifact.getClassifier());
-    }
-
-    private static boolean isTestArtifact(String classifier) {
-        return "tests".equals(classifier);
     }
 
     private static RepositorySystemSession localOnly(final RepositorySystemSession session) {
@@ -1084,8 +1030,7 @@ public class MavenProjectInput {
                 // their dependency inputs without adding a meaningless hash for the POM artifact itself.
                 Optional<MavenProject> reactorPom = tryResolveDependencyProject(dependency);
                 if (reactorPom.isPresent()) {
-                    ProjectsInputInfo reactorInput = projectInputCalculator.calculateInput(
-                            reactorPom.get(), zone, includeTestDependencies || isTestArtifact(dependency));
+                    ProjectsInputInfo reactorInput = projectInputCalculator.calculateInput(reactorPom.get(), zone);
                     String reactorPomPrefix =
                             keyPrefix + KeyUtils.getVersionlessArtifactKey(createDependencyArtifact(dependency)) + "|";
                     // A reactor POM can change the consumer's resolved graph without contributing mutable child
@@ -1121,8 +1066,7 @@ public class MavenProjectInput {
             String projectHash;
             if (dependencyProject != null) // part of multi module
             {
-                ProjectsInputInfo reactorInput = projectInputCalculator.calculateInput(
-                        dependencyProject, zone, includeTestDependencies || isTestArtifact(dependency));
+                ProjectsInputInfo reactorInput = projectInputCalculator.calculateInput(dependencyProject, zone);
                 projectHash = reactorInput.getChecksum();
                 if (hasIncompleteDependencyGraph(reactorInput)) {
                     markIncompleteDependencyGraph(result);

@@ -145,7 +145,7 @@ class TransitiveSnapshotTest {
     }
 
     @Test
-    void testScopedTransitiveSnapshotOnlyInvalidatesTestLifecycle(Verifier verifier) throws Exception {
+    void testScopedTransitiveSnapshotInvalidatesWholeLifecycle(Verifier verifier) throws Exception {
         Path base = Paths.get(verifier.getBasedir());
         verifier.setAutoclean(false);
         verifier.addCliOption("-Dmaven.build.cache.location=" + base.resolve("../cache"));
@@ -168,8 +168,8 @@ class TransitiveSnapshotTest {
 
         CacheITUtils.replaceInFile(base.resolve("libs/leaf/src/main/java/probe/Leaf.java"), "\"before\"", "\"after\"");
         build(verifier, "libs-after", "libs", "install");
-        build(verifier, "app-compile-after", "app", "compile")
-                .verifyTextInLog("Skipping plugin execution (cached): compiler:compile");
+        Verifier compileAfter = build(verifier, "app-compile-after", "app", "compile");
+        CacheITUtils.assertNotInLog(compileAfter, "Skipping plugin execution (cached): compiler:compile");
         build(verifier, "app-test-compile-after", "app", "test-compile");
         assertEquals(
                 "after",

@@ -57,7 +57,6 @@ public class DefaultProjectInputCalculator implements ProjectInputCalculator {
     private static final ThreadLocal<Set<String>> CURRENTLY_CALCULATING = ThreadLocal.withInitial(LinkedHashSet::new);
 
     @Inject
-    @SuppressWarnings("checkstyle:parameternumber")
     public DefaultProjectInputCalculator(
             Provider<MavenSession> providerSession,
             RemoteCacheRepository remoteCache,
@@ -76,14 +75,14 @@ public class DefaultProjectInputCalculator implements ProjectInputCalculator {
     }
 
     @Override
-    public ProjectsInputInfo calculateInput(MavenProject project, Zone inputZone, boolean includeTestDependencies) {
+    public ProjectsInputInfo calculateInput(MavenProject project, Zone inputZone) {
         LOGGER.info(
                 "Going to calculate checksum for project [groupId={}, artifactId={}, version={}]",
                 project.getGroupId(),
                 project.getArtifactId(),
                 project.getVersion());
 
-        String key = getKey(project, inputZone, includeTestDependencies);
+        String key = getKey(project, inputZone);
         // NOTE: Do not use ConcurrentHashMap.computeIfAbsent() here because of recursive calls
         // this could lead to runtime exception - IllegalStateException("Recursive update")
         // in jdk 8 the result of attempt to modify items with the same hash code could lead to infinite loop
@@ -91,13 +90,12 @@ public class DefaultProjectInputCalculator implements ProjectInputCalculator {
         if (projectsInputInfo != null) {
             return projectsInputInfo;
         }
-        projectsInputInfo = calculateInputInternal(key, project, inputZone, includeTestDependencies);
+        projectsInputInfo = calculateInputInternal(key, project, inputZone);
         checkSumMap.put(key, projectsInputInfo);
         return projectsInputInfo;
     }
 
-    private ProjectsInputInfo calculateInputInternal(
-            String key, MavenProject project, Zone inputZone, boolean includeTestDependencies) {
+    private ProjectsInputInfo calculateInputInternal(String key, MavenProject project, Zone inputZone) {
         Set<String> projectsSet = CURRENTLY_CALCULATING.get();
 
         if (!projectsSet.add(key)) {
@@ -116,8 +114,7 @@ public class DefaultProjectInputCalculator implements ProjectInputCalculator {
                     cacheConfig,
                     repoSystem,
                     remoteCache,
-                    artifactHandlerManager,
-                    includeTestDependencies);
+                    artifactHandlerManager);
             return input.calculateChecksum(inputZone);
         } catch (Exception e) {
             throw new RuntimeException("Failed to calculate checksums for " + project.getArtifactId(), e);
@@ -126,8 +123,7 @@ public class DefaultProjectInputCalculator implements ProjectInputCalculator {
         }
     }
 
-    private static String getKey(MavenProject project, Zone inputZone, boolean includeTestDependencies) {
-        return project.getGroupId() + ':' + project.getArtifactId() + ':' + project.getVersion() + ':' + inputZone
-                + "|testDependencies=" + includeTestDependencies;
+    private static String getKey(MavenProject project, Zone inputZone) {
+        return project.getGroupId() + ':' + project.getArtifactId() + ':' + project.getVersion() + ':' + inputZone;
     }
 }
