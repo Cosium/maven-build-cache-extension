@@ -49,14 +49,6 @@ class Issue579Test {
     void changingManagedVersionOfTransitiveDependencyInvalidatesCache(Verifier verifier) throws Exception {
         Path pom = setUp(verifier);
 
-        // A lookup needs the descriptors of the resolved graph in the local repository; without them the
-        // build would skip the cache entirely and the miss below would not prove anything.
-        replaceInFile(pom, MANAGED_HAMCREST_CORE_1_3, MANAGED_HAMCREST_CORE_1_2);
-        verifier.setSystemProperty("maven.build.cache.enabled", "false");
-        build(verifier, "../log-0-download-hamcrest-core-1.2.txt");
-        verifier.setSystemProperty("maven.build.cache.enabled", "true");
-        replaceInFile(pom, MANAGED_HAMCREST_CORE_1_2, MANAGED_HAMCREST_CORE_1_3);
-
         build(verifier, "../log-1-hamcrest-core-1.3.txt");
         verifier.verifyTextInLog(CACHE_SAVED);
 

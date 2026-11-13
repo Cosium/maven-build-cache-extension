@@ -211,7 +211,7 @@ public class CacheControllerImpl implements CacheController {
 
         if (MavenProjectInput.hasIncompleteDependencyGraph(inputInfo)) {
             LOGGER.warn(
-                    "Skipping build cache lookup for {} because the transitive snapshot graph is not locally complete",
+                    "Skipping build cache lookup for {} because the dependency graph could not be collected",
                     projectName);
             CacheResult result = empty(context, inputZone);
             cacheResults.put(getVersionlessProjectKey(project, inputZone), result);
@@ -657,7 +657,7 @@ public class CacheControllerImpl implements CacheController {
         }
 
         if (MavenProjectInput.hasIncompleteDependencyGraph(context.getInputInfo())) {
-            LOGGER.warn("Cannot save project in cache: the transitive snapshot graph is not locally complete");
+            LOGGER.warn("Cannot save project in cache: the dependency graph could not be collected");
             return;
         }
 

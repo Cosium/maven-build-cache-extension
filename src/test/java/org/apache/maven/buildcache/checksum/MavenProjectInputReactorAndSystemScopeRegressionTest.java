@@ -23,10 +23,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.SortedMap;
+import java.util.stream.Collectors;
 
 import org.apache.maven.artifact.handler.ArtifactHandler;
 import org.apache.maven.buildcache.MultiModuleSupport;
@@ -50,10 +52,8 @@ import org.eclipse.aether.collection.CollectRequest;
 import org.eclipse.aether.collection.CollectResult;
 import org.eclipse.aether.collection.DependencyCollectionException;
 import org.eclipse.aether.graph.DefaultDependencyNode;
-import org.eclipse.aether.repository.LocalArtifactRequest;
-import org.eclipse.aether.repository.LocalArtifactResult;
-import org.eclipse.aether.repository.LocalRepositoryManager;
 import org.eclipse.aether.resolution.ArtifactRequest;
+import org.eclipse.aether.resolution.ArtifactResolutionException;
 import org.eclipse.aether.resolution.ArtifactResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,6 +73,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -229,7 +230,7 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
     }
 
     @Test
-    void unavailableLocalTransitiveGraphMarksInputAsNonCacheable() throws Exception {
+    void uncollectableTransitiveGraphMarksInputAsNonCacheable() throws Exception {
         Path artifactFile = tempDir.resolve("direct-snapshot.jar");
         Files.write(artifactFile, "direct".getBytes(StandardCharsets.UTF_8));
 
@@ -264,15 +265,50 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
                 hashes.get(MavenProjectInput.INCOMPLETE_DEPENDENCY_GRAPH_MARKER).matches("[0-9a-f]{40}"));
         org.mockito.ArgumentCaptor<RepositorySystemSession> sessionCaptor =
                 org.mockito.ArgumentCaptor.forClass(RepositorySystemSession.class);
-        verify(repoSystem).collectDependencies(sessionCaptor.capture(), any(CollectRequest.class));
-        assertTrue(sessionCaptor.getValue().isOffline(), "Transitive collection must not use remote repositories");
+        verify(repoSystem, times(2)).collectDependencies(sessionCaptor.capture(), any(CollectRequest.class));
+        assertEquals(
+                Arrays.asList(true, false),
+                sessionCaptor.getAllValues().stream()
+                        .map(RepositorySystemSession::isOffline)
+                        .collect(Collectors.toList()));
         verify(repoSystem, never())
                 .resolveDependencies(
                         any(RepositorySystemSession.class), any(org.eclipse.aether.resolution.DependencyRequest.class));
     }
 
     @Test
-    void releaseRootIsCollectedOfflineToDiscoverTransitiveSnapshots() throws Exception {
+    void graphIncompleteInLocalRepositoryIsCollectedOnline() throws Exception {
+        Dependency dependency = new Dependency();
+        dependency.setGroupId("com.example");
+        dependency.setArtifactId("release-bridge");
+        dependency.setVersion("1.0");
+        dependency.setType("jar");
+        when(project.getDependencies()).thenReturn(Collections.singletonList(dependency));
+        when(project.getRemoteProjectRepositories()).thenReturn(Collections.emptyList());
+
+        CollectResult onlineGraph = dependencyGraph(
+                new DefaultArtifact("com.example", "release-bridge", "jar", "1.0"),
+                new DefaultArtifact("com.example", "release-leaf", "jar", "2.0"));
+        when(repoSystem.collectDependencies(any(RepositorySystemSession.class), any(CollectRequest.class)))
+                .thenAnswer(invocation -> {
+                    RepositorySystemSession repositorySession = invocation.getArgument(0);
+                    if (repositorySession.isOffline()) {
+                        throw new DependencyCollectionException(
+                                new CollectResult(invocation.getArgument(1)), "release-bridge POM not downloaded");
+                    }
+                    return onlineGraph;
+                });
+
+        Method getMutableDependencies = MavenProjectInput.class.getDeclaredMethod("getMutableDependencies", Zone.class);
+        getMutableDependencies.setAccessible(true);
+        SortedMap<String, String> hashes =
+                (SortedMap<String, String>) getMutableDependencies.invoke(mavenProjectInput, zone);
+
+        assertEquals(Collections.singleton(MavenProjectInput.RESOLVED_DEPENDENCY_GRAPH_KEY), hashes.keySet());
+    }
+
+    @Test
+    void releaseRootIsCollectedToDiscoverTransitiveSnapshots() throws Exception {
         Dependency dependency = new Dependency();
         dependency.setGroupId("com.example");
         dependency.setArtifactId("release-bridge");
@@ -297,8 +333,8 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
                 org.mockito.ArgumentCaptor.forClass(RepositorySystemSession.class);
         org.mockito.ArgumentCaptor<CollectRequest> requestCaptor =
                 org.mockito.ArgumentCaptor.forClass(CollectRequest.class);
-        verify(repoSystem).collectDependencies(sessionCaptor.capture(), requestCaptor.capture());
-        assertTrue(sessionCaptor.getValue().isOffline(), "Release-root collection must remain local-only");
+        verify(repoSystem, times(2)).collectDependencies(sessionCaptor.capture(), requestCaptor.capture());
+        assertTrue(sessionCaptor.getAllValues().get(0).isOffline(), "Release-root collection must start local-only");
         assertEquals(1, requestCaptor.getValue().getDependencies().size());
         assertEquals(
                 "1.0",
@@ -328,7 +364,7 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
         assertTrue(hashes.containsKey(MavenProjectInput.INCOMPLETE_DEPENDENCY_GRAPH_MARKER));
         org.mockito.ArgumentCaptor<CollectRequest> requestCaptor =
                 org.mockito.ArgumentCaptor.forClass(CollectRequest.class);
-        verify(repoSystem).collectDependencies(any(RepositorySystemSession.class), requestCaptor.capture());
+        verify(repoSystem, times(2)).collectDependencies(any(RepositorySystemSession.class), requestCaptor.capture());
         assertEquals(
                 "dependency-bom",
                 requestCaptor.getValue().getDependencies().get(0).getArtifact().getArtifactId());
@@ -442,16 +478,13 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
         Path selectedDescriptor = tempDir.resolve("shared-2.0-SNAPSHOT.pom");
         Files.writeString(selectedArtifact, "before");
         Files.writeString(selectedDescriptor, "<project/>");
-        LocalRepositoryManager localRepositoryManager = mock(LocalRepositoryManager.class);
-        when(repositorySystemSession.getLocalRepositoryManager()).thenReturn(localRepositoryManager);
-        when(localRepositoryManager.find(any(RepositorySystemSession.class), any(LocalArtifactRequest.class)))
+        when(repoSystem.resolveArtifact(any(RepositorySystemSession.class), any(ArtifactRequest.class)))
                 .thenAnswer(invocation -> {
-                    LocalArtifactRequest request = invocation.getArgument(1);
+                    ArtifactRequest request = invocation.getArgument(1);
                     Path file =
                             "pom".equals(request.getArtifact().getExtension()) ? selectedDescriptor : selectedArtifact;
-                    return new LocalArtifactResult(request)
-                            .setFile(file.toFile())
-                            .setAvailable(true);
+                    return new ArtifactResult(request)
+                            .setArtifact(request.getArtifact().setFile(file.toFile()));
                 });
 
         Method getMutableDependencies = MavenProjectInput.class.getDeclaredMethod("getMutableDependencies", Zone.class);
@@ -497,15 +530,12 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
         Path bridgePom = tempDir.resolve("bridge-1.0-SNAPSHOT.pom");
         Files.writeString(bridgeJar, "unchanged-jar");
         Files.writeString(bridgePom, "<dependency>leaf-before:1.0</dependency>");
-        LocalRepositoryManager localRepositoryManager = mock(LocalRepositoryManager.class);
-        when(repositorySystemSession.getLocalRepositoryManager()).thenReturn(localRepositoryManager);
-        when(localRepositoryManager.find(any(RepositorySystemSession.class), any(LocalArtifactRequest.class)))
+        when(repoSystem.resolveArtifact(any(RepositorySystemSession.class), any(ArtifactRequest.class)))
                 .thenAnswer(invocation -> {
-                    LocalArtifactRequest request = invocation.getArgument(1);
+                    ArtifactRequest request = invocation.getArgument(1);
                     Path file = "pom".equals(request.getArtifact().getExtension()) ? bridgePom : bridgeJar;
-                    return new LocalArtifactResult(request)
-                            .setFile(file.toFile())
-                            .setAvailable(true);
+                    return new ArtifactResult(request)
+                            .setArtifact(request.getArtifact().setFile(file.toFile()));
                 });
 
         Method getMutableDependencies = MavenProjectInput.class.getDeclaredMethod("getMutableDependencies", Zone.class);
@@ -554,15 +584,12 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
         Path bridgePom = tempDir.resolve("bridge-1.0-SNAPSHOT.pom");
         Files.writeString(bridgeJar, "unchanged-jar");
         Files.writeString(bridgePom, "<project><parent>unchanged-snapshot-parent</parent></project>");
-        LocalRepositoryManager localRepositoryManager = mock(LocalRepositoryManager.class);
-        when(repositorySystemSession.getLocalRepositoryManager()).thenReturn(localRepositoryManager);
-        when(localRepositoryManager.find(any(RepositorySystemSession.class), any(LocalArtifactRequest.class)))
+        when(repoSystem.resolveArtifact(any(RepositorySystemSession.class), any(ArtifactRequest.class)))
                 .thenAnswer(invocation -> {
-                    LocalArtifactRequest request = invocation.getArgument(1);
+                    ArtifactRequest request = invocation.getArgument(1);
                     Path file = "pom".equals(request.getArtifact().getExtension()) ? bridgePom : bridgeJar;
-                    return new LocalArtifactResult(request)
-                            .setFile(file.toFile())
-                            .setAvailable(true);
+                    return new ArtifactResult(request)
+                            .setArtifact(request.getArtifact().setFile(file.toFile()));
                 });
 
         Method getMutableDependencies = MavenProjectInput.class.getDeclaredMethod("getMutableDependencies", Zone.class);
@@ -599,15 +626,14 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
 
         Path bridgeJar = tempDir.resolve("bridge-1.0-SNAPSHOT.jar");
         Files.writeString(bridgeJar, "available-jar");
-        LocalRepositoryManager localRepositoryManager = mock(LocalRepositoryManager.class);
-        when(repositorySystemSession.getLocalRepositoryManager()).thenReturn(localRepositoryManager);
-        when(localRepositoryManager.find(any(RepositorySystemSession.class), any(LocalArtifactRequest.class)))
+        when(repoSystem.resolveArtifact(any(RepositorySystemSession.class), any(ArtifactRequest.class)))
                 .thenAnswer(invocation -> {
-                    LocalArtifactRequest request = invocation.getArgument(1);
-                    boolean descriptor = "pom".equals(request.getArtifact().getExtension());
-                    return new LocalArtifactResult(request)
-                            .setFile(descriptor ? null : bridgeJar.toFile())
-                            .setAvailable(!descriptor);
+                    ArtifactRequest request = invocation.getArgument(1);
+                    if ("pom".equals(request.getArtifact().getExtension())) {
+                        throw new ArtifactResolutionException(Collections.singletonList(new ArtifactResult(request)));
+                    }
+                    return new ArtifactResult(request)
+                            .setArtifact(request.getArtifact().setFile(bridgeJar.toFile()));
                 });
 
         Method getMutableDependencies = MavenProjectInput.class.getDeclaredMethod("getMutableDependencies", Zone.class);
@@ -715,6 +741,6 @@ class MavenProjectInputReactorAndSystemScopeRegressionTest {
                 (SortedMap<String, String>) getMutableDependencies.invoke(mavenProjectInput, zone);
 
         assertTrue(hashes.containsKey(MavenProjectInput.INCOMPLETE_DEPENDENCY_GRAPH_MARKER));
-        verify(projectInputCalculator).calculateInput(reactorProject, zone);
+        verify(projectInputCalculator, times(2)).calculateInput(reactorProject, zone);
     }
 }
