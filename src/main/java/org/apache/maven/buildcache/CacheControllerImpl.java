@@ -446,8 +446,7 @@ public class CacheControllerImpl implements CacheController {
                 final Artifact artifactInfo = build.getArtifact();
                 String originalVersion = artifactInfo.getVersion();
                 artifactInfo.setVersion(project.getVersion());
-                artifactInfo.setFilePath(
-                        buildCurrentVersionFilePath(artifactInfo.getFilePath(), originalVersion, project));
+                artifactInfo.setFilePath(buildCurrentVersionFilePath(artifactInfo, project));
                 restoredProjectArtifactIsDirectory = artifactInfo.isIsDirectory();
                 // TODO if remote is forced, probably need to refresh or reconcile all files
                 final Future<File> downloadTask =
@@ -491,8 +490,7 @@ public class CacheControllerImpl implements CacheController {
                             state.restoredOutputClassifiers.add(attachedArtifactInfo.getClassifier());
                         }
                     } else {
-                        attachedArtifactInfo.setFilePath(buildCurrentVersionFilePath(
-                                attachedArtifactInfo.getFilePath(), originalVersion, project));
+                        attachedArtifactInfo.setFilePath(buildCurrentVersionFilePath(attachedArtifactInfo, project));
                         Future<File> downloadTask = createDownloadTask(
                                 cacheResult, context, project, attachedArtifactInfo, originalVersion);
                         final RestoredArtifact restoredAttachedArtifact = restoredArtifact(
@@ -541,17 +539,32 @@ public class CacheControllerImpl implements CacheController {
      * ({@code <finalName>[-<classifier>].<extension>}). A file saved by a build of another version is put back under
      * the name the current build gives it, so that a plugin running again after the restore attaches the same file
      * rather than a second one under the same coordinates.
+     * <p>
+     * The version is matched as any text in place of the current one, not as the version the entry records: an entry
+     * saved by a build that had itself restored the file without renaming it records one version and names its files
+     * after another.
      */
-    private String buildCurrentVersionFilePath(String filePath, String originalVersion, MavenProject project) {
-        String currentFileNamePrefix = project.getBuild().getFinalName();
-        String originalFileNamePrefix = currentFileNamePrefix.replace(project.getVersion(), originalVersion);
-        int fileNameStart = filePath.lastIndexOf('/') + 1;
-        if (!filePath.startsWith(originalFileNamePrefix, fileNameStart)) {
+    private String buildCurrentVersionFilePath(Artifact artifactInfo, MavenProject project) {
+        String filePath = artifactInfo.getFilePath();
+        String finalName = project.getBuild().getFinalName();
+        int versionStart = finalName.indexOf(project.getVersion());
+        if (versionStart < 0 || !artifactInfo.getFileName().startsWith(project.getArtifactId())) {
             return filePath;
         }
-        return filePath.substring(0, fileNameStart)
-                + currentFileNamePrefix
-                + filePath.substring(fileNameStart + originalFileNamePrefix.length());
+        String classifierAndExtension =
+                artifactInfo.getFileName().substring(project.getArtifactId().length());
+        String fileNamePrefix = finalName.substring(0, versionStart);
+        String fileNameSuffix =
+                finalName.substring(versionStart + project.getVersion().length()) + classifierAndExtension;
+        int fileNameStart = filePath.lastIndexOf('/') + 1;
+        String fileName = filePath.substring(fileNameStart);
+        if (fileName.length() <= fileNamePrefix.length() + fileNameSuffix.length()) {
+            return filePath;
+        }
+        if (!fileName.startsWith(fileNamePrefix) || !fileName.endsWith(fileNameSuffix)) {
+            return filePath;
+        }
+        return filePath.substring(0, fileNameStart) + finalName + classifierAndExtension;
     }
 
     @Override

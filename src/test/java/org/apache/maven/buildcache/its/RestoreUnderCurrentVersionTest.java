@@ -18,8 +18,14 @@
  */
 package org.apache.maven.buildcache.its;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.apache.maven.buildcache.its.junit.IntegrationTest;
 import org.apache.maven.it.VerificationException;
@@ -63,7 +69,36 @@ class RestoreUnderCurrentVersionTest {
         verifier.verifyFileNotPresent("target/custom-1.0.0-SNAPSHOT-sources.jar");
     }
 
+    @Test
+    void reconciliationAfterRestoreOfAnEntryRecordingAnotherVersionThanItsFileNamesReattachesTheSameFiles(
+            Verifier verifier) throws VerificationException, IOException {
+        buildFirstVersion(verifier);
+        Path cacheDirectory = Paths.get(verifier.getBasedir()).resolveSibling("cache");
+        try (Stream<Path> files = Files.walk(cacheDirectory)) {
+            for (Path buildInfo :
+                    files.filter(file -> file.endsWith("buildinfo.xml")).collect(Collectors.toList())) {
+                String content = new String(Files.readAllBytes(buildInfo), StandardCharsets.UTF_8);
+                Files.write(
+                        buildInfo,
+                        content.replace("<version>1.0.0-SNAPSHOT</version>", "<version>0.9.0</version>")
+                                .getBytes(StandardCharsets.UTF_8));
+            }
+        }
+
+        buildSecondVersion(verifier);
+
+        verifier.verifyFilePresent("target/probe-1.0.1-SNAPSHOT.jar");
+        verifier.verifyFilePresent("target/probe-1.0.1-SNAPSHOT-sources.jar");
+        verifier.verifyFileNotPresent("target/probe-1.0.0-SNAPSHOT.jar");
+        verifier.verifyFileNotPresent("target/probe-1.0.0-SNAPSHOT-sources.jar");
+    }
+
     private void buildTwoVersions(Verifier verifier) throws VerificationException {
+        buildFirstVersion(verifier);
+        buildSecondVersion(verifier);
+    }
+
+    private void buildFirstVersion(Verifier verifier) throws VerificationException {
         verifier.setAutoclean(false);
         verifier.setSystemProperty(
                 CACHE_LOCATION_PROPERTY_NAME,
@@ -74,7 +109,9 @@ class RestoreUnderCurrentVersionTest {
         verifier.addCliOption("-DskipTests");
         verifier.executeGoals(Arrays.asList("clean", "verify"));
         verifier.verifyErrorFreeLog();
+    }
 
+    private void buildSecondVersion(Verifier verifier) throws VerificationException {
         verifier.setLogFileName("../log-2.txt");
         verifier.getCliOptions().clear();
         verifier.addCliOption("-Drevision=1.0.1-SNAPSHOT");
